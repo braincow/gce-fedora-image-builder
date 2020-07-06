@@ -15,10 +15,6 @@ curl http://mirrors.kernel.org/fedora/releases/$FEDORA_VERSION/Cloud/x86_64/imag
 
 # prepare the mountpoint for the image
 ROOT=/mnt/fedora-$FEDORA_VERSION-disk
-if [ -d "$ROOT" ]; then
-    echo "err: Previous mount folder detected at: $ROOT. Unmount and remove it manually to be safe."
-    exit 1
-fi
 mkdir -vp $ROOT
 losetup -fP $IMAGE
 DEVICE=$( losetup -l |grep $IMAGE |awk '{print($1)}' )
@@ -68,9 +64,7 @@ EOT
 
 # final tasks
 chroot $ROOT /bin/bash << "EOT"
-dnf -y upgrade --refresh && dnf clean all
-touch /.autorelabel
-sync
+dnf clean all
 EOT
 
 # cleanup the image mountpoint
