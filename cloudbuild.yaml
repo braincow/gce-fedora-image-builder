@@ -1,0 +1,150 @@
+substitutions:
+  # fedora version to convert from cloud-init to gce
+  _FEDORA_VERSION: "32"
+  ### GCE configuration for build time
+  _BUILD_ZONE: europe-north1-a
+  _BUILD_NETWORK: default
+  _BUILD_SUBNET: default
+
+steps:
+# create a new empty virtual machine to be used as a template by utilizing the gcloud command builder
+#  (this requires that cloudbuild service account has all the relevant permission to create new virtual machines)
+#  - Compute Engine Admin, or a subset of it
+#  - Service Account User to Compute Engine default SA
+- name: 'gcr.io/cloud-builders/gcloud'
+  args:
+  - compute
+  - instances
+  - create
+  - fedora${_FEDORA_VERSION}-builder-${BUILD_ID}
+  - --tags
+  - fedora-template-builder-${BUILD_ID}
+  - --zone
+  - ${_BUILD_ZONE}
+  - --network
+  - ${_BUILD_NETWORK}
+  - --subnet
+  - ${_BUILD_SUBNET}
+  - --image-family
+  - centos-8
+  - --image-project
+  - centos-cloud
+
+# create a new SSH keypair for this buildjob and add it to the instance meta-data to allow logins
+- name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    echo "Waiting for 10 seconds to allow SSH to properly startup at remote worker"
+    sleep 10
+    rm -rf /workspace/.ssh
+    mkdir -p .ssh && chmod 600 .ssh
+    ssh-keygen -b 2048 -t rsa -f .ssh/id_rsa -q -N ""
+    echo -n builder: > /tmp/instance_ssh_keys
+    cat .ssh/id_rsa.pub >> /tmp/instance_ssh_keys
+    cat /tmp/instance_ssh_keys
+    gcloud compute instances add-metadata --zone ${_BUILD_ZONE} fedora${_FEDORA_VERSION}-builder-${BUILD_ID} \
+      --metadata-from-file ssh-keys=/tmp/instance_ssh_keys
+
+# Add firewall rule to allow SSH access from cloudbuild to the instance
+- name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  args:
+  - -c
+  - |
+    echo Build system running in IP: $(curl https://icanhazip.com)
+    gcloud compute firewall-rules create fedora${_FEDORA_VERSION}-builder-${BUILD_ID}-allow-ssh \
+      --network=${_BUILD_NETWORK} \
+      --allow=TCP:22 --direction=INGRESS \
+      --target-tags=fedora-template-builder-${BUILD_ID} \
+      --source-ranges=$(curl https://icanhazip.com)/32 \
+      --description="Allow cloudbuild instance to access this Fedora image template builder"
+
+# Wait for the template builder GCE instance to start
+- name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    extip=$$(gcloud compute instances list \
+      --filter=fedora${_FEDORA_VERSION}-builder-${BUILD_ID} \
+      --format='value(EXTERNAL_IP)')
+    echo Waiting for GCE resource "fedora${_FEDORA_VERSION}-builder-${BUILD_ID}" to start and give us SSH port access
+    while true; do
+      sleep 1
+      ssh-keyscan $$extip > .ssh/known_hosts
+      if grep $$extip .ssh/known_hosts; then
+        break
+      else
+        echo .. still waiting
+      fi
+    done
+
+# After the builder image has started execute the builder script on remote worker and local container.
+- name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    echo "Waiting for 10 seconds for everything to get ready on remote worker..."
+    sleep 10
+    echo "Executing image conversion from cloud-init to GCE!"
+    extip=$$(gcloud compute instances list \
+      --filter=fedora${_FEDORA_VERSION}-builder-${BUILD_ID} \
+      --format='value(EXTERNAL_IP)')
+    scp -o UserKnownHostsFile=.ssh/known_hosts -i .ssh/id_rsa fedora-gce-builder.sh builder@$$extip:/tmp
+    ssh -o UserKnownHostsFile=.ssh/known_hosts -i .ssh/id_rsa builder@$$extip 'sudo /tmp/fedora-gce-builder.sh ${_FEDORA_VERSION}'
+    echo "Copying modified image from remote host to local env. Please wait."
+    scp -o UserKnownHostsFile=.ssh/known_hosts -i .ssh/id_rsa builder@$$extip:/tmp/fedora-${_FEDORA_VERSION}-disk.img disk.raw
+    timestamp=$$(date +%Y%m%d%H%M%S)
+    echo -n $$timestamp > timestamp.txt
+    tar zcvf fedora-image-${_FEDORA_VERSION}-$$timestamp.tar.gz disk.raw
+    rm disk.raw
+
+# Copy the tarball to the intermediate bucket
+- name: 'gcr.io/cloud-builders/gsutil'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      gsutil -b on gs://fedora${_FEDORA_VERSION}-build-${BUILD_ID}
+      gsutil cp fedora-image*.tar.gz gs://fedora${_FEDORA_VERSION}-build-${BUILD_ID}
+
+# When the image is at the bucket we can now create GCE image out of it (phew!)
+- name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    timestamp=$$(cat timestamp.txt)
+    gcloud compute images create \
+      --source-uri gs://fedora${_FEDORA_VERSION}-build-${BUILD_ID}/fedora-image-${_FEDORA_VERSION}-$$timestamp.tar.gz \
+      --family fedora-${_FEDORA_VERSION} \
+      fedora-${_FEDORA_VERSION}-v$$timestamp
+
+# Finally we start the cleanup by removing firewall rule we created
+- name: 'gcr.io/cloud-builders/gcloud'
+  args:
+  - compute
+  - firewall-rules
+  - delete
+  - fedora${_FEDORA_VERSION}-builder-${BUILD_ID}-allow-ssh
+
+# .. and destroy the builder vm itself
+- name: 'gcr.io/cloud-builders/gcloud'
+  args:
+  - compute
+  - instances
+  - delete
+  - fedora${_FEDORA_VERSION}-builder-${BUILD_ID}
+  - --zone
+  - ${_BUILD_ZONE}
+
+# ... and the temporary bucket we created
+- name: 'gcr.io/cloud-builders/gsutil'
+  args:
+    - rb
+    - gs://fedora${_FEDORA_VERSION}-build-${BUILD_ID}
+
+# eof
