@@ -5,7 +5,7 @@ set -x
 # exit on all failures
 set -e
 
-FEDORA_VERSION=${1:-32}
+FEDORA_VERSION=${1:-34}
 
 # first detect the filename for the latest RAW image
 IMAGE=/tmp/fedora-$FEDORA_VERSION-disk.img

@@ -1,6 +1,6 @@
 substitutions:
   # fedora version to convert from cloud-init to gce
-  _FEDORA_VERSION: "32"
+  _FEDORA_VERSION: "34"
   ### GCE configuration for build time
   _BUILD_ZONE: europe-north1-a
   _BUILD_NETWORK: default
