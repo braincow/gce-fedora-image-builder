@@ -1,5 +1,5 @@
 cloudbuild:
-	gcloud builds submit --timeout=1h.
+	gcloud builds submit --timeout=1h .
 
 cloudbuild-async:
 	gcloud builds submit --timeout=1h --async .
