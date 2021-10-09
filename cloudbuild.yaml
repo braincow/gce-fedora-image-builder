@@ -109,7 +109,7 @@ steps:
   args:
     - '-c'
     - |
-      gsutil mb -b on gs://fedora${_FEDORA_VERSION}-build-${BUILD_ID}
+      gsutil mb -b on -l ${_GCE_IMAGE_LOCATION} ${} gs://fedora${_FEDORA_VERSION}-build-${BUILD_ID}
       gsutil cp fedora-image*.tar.gz gs://fedora${_FEDORA_VERSION}-build-${BUILD_ID}
 
 # When the image is at the bucket we can now create GCE image out of it (phew!)

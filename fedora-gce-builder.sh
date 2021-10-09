@@ -11,7 +11,9 @@ FEDORA_VERSION=${1:-34}
 IMAGE=/tmp/fedora-$FEDORA_VERSION-disk.img
 RAW_NAME=$(curl http://mirrors.kernel.org/fedora/releases/$FEDORA_VERSION/Cloud/x86_64/images/ |grep raw.xz |sed -e 's/<[^>]*>//g'|cut -d" " -f1)
 # download the RAW image and immediatelly decompress it into a disk.raw image
-curl http://mirrors.kernel.org/fedora/releases/$FEDORA_VERSION/Cloud/x86_64/images/$RAW_NAME | xz --decompress --stdout > $IMAGE
+if ! [ -f $IMAGE ]; then
+    curl http://mirrors.kernel.org/fedora/releases/$FEDORA_VERSION/Cloud/x86_64/images/$RAW_NAME | xz --decompress --stdout > $IMAGE
+fi
 
 # prepare the mountpoint for the image
 ROOT=/mnt/fedora-$FEDORA_VERSION-disk
@@ -19,6 +21,8 @@ mkdir -vp $ROOT
 losetup -fP $IMAGE
 DEVICE=$( losetup -l |grep $IMAGE |awk '{print($1)}' )
 mount ${DEVICE}p1 $ROOT
+mv -fv $ROOT/etc/resolv.conf $ROOT/etc/resolv.conf.original
+touch $ROOT/etc/resolv.conf
 mount --bind /etc/resolv.conf $ROOT/etc/resolv.conf
 mount --bind /sys $ROOT/sys
 mount --bind /proc $ROOT/proc
@@ -38,7 +42,7 @@ chroot $ROOT /bin/bash << "EOT"
 tee -a /etc/yum.repos.d/google-cloud-sdk.repo << EOM
 [google-cloud-sdk]
 name=Google Cloud SDK
-baseurl=https://packages.cloud.google.com/yum/repos/cloud-sdk-el7-x86_64
+baseurl=https://packages.cloud.google.com/yum/repos/cloud-sdk-el8-x86_64
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1
@@ -67,8 +71,16 @@ chroot $ROOT /bin/bash << "EOT"
 dnf clean all
 EOT
 
+# do some cleanup to make sure that no processes are blocking unmounting
+dnf install -y psmisc lsof coreutils
+for PROCESS in $( lsof |grep $ROOT |cut -d" " -f1 ); do
+    pkill -9 $PROCESS || true
+done
+
 # cleanup the image mountpoint
 umount $ROOT/etc/resolv.conf
+rm -fv $ROOT/etc/resolv.conf
+mv -fv $ROOT/etc/resolv.conf.original $ROOT/etc/resolv.conf
 umount $ROOT/sys
 umount $ROOT/proc
 umount $ROOT/dev

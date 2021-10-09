@@ -19,6 +19,13 @@ However if the build for any reason fails resources are left over to run and nee
 
 Targets provided:
 
+* build - executes build locally, WARNING! You need to be in a Fedora/CentOS host system and be able to execute this make target as root via sudo or su.
 * cloudbuild - executes the build in GCP project
 * cloudbuild-async - executes the build in GCP project asyncronously.
-* clean-failed - executes the cleanup script
+* clean-failed-cloudbuild - executes the cleanup script
+
+Makefile variables can be used to describe the names of your VPC network and subnet if the default GCE ones are not available. For example:
+
+```sh
+make VPC_SUBNET=my-vpc VPC_SUBNET=my-subnet clean-failed-cloudbuild cloudbuild
+```
