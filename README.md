@@ -27,5 +27,5 @@ Targets provided:
 Makefile variables can be used to describe the names of your VPC network and subnet if the default GCE ones are not available. For example:
 
 ```sh
-make VPC_SUBNET=my-vpc VPC_SUBNET=my-subnet clean-failed-cloudbuild cloudbuild
+make VPC_NETWORK=my-vpc VPC_SUBNET=my-subnet clean-failed-cloudbuild cloudbuild
 ```
