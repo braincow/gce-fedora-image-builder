@@ -17,6 +17,8 @@ However if the build for any reason fails resources are left over to run and nee
 
 ## Makefile
 
+NOTE! These targets expect that your gcloud has been preconfigured with project etc names set and appropriate config is active. You can manage these with "gcloud config" family of commands.
+
 Targets provided:
 
 * build - executes build locally, WARNING! You need to be in a Fedora/CentOS host system and be able to execute this make target as root via sudo or su.
